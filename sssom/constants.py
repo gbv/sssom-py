@@ -107,6 +107,8 @@ CURIE_MAP = "curie_map"
 SUBJECT_SOURCE_ID = "subject_source_id"
 OBJECT_SOURCE_ID = "object_source_id"
 
+SKOS_MAPPING_RELATION = "http://www.w3.org/2004/02/skos/core#mappingRelation"
+
 # PREDICATES
 OWL_EQUIVALENT_CLASS = "owl:equivalentClass"
 OWL_EQUIVALENT_PROPERTY = "owl:equivalentProperty"

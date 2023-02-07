@@ -42,6 +42,7 @@ from sssom.constants import (
     SUBJECT_SOURCE,
     SUBJECT_SOURCE_ID,
     SSSOMSchemaView,
+    SKOS_MAPPING_RELATION,
 )
 
 from .context import (
@@ -352,7 +353,113 @@ def parse_alignment_xml(
     return msdf
 
 
+def parse_jskos(
+    file_path: str,
+    prefix_map: Dict[str, str],
+    meta: Dict[str, str],
+    **kwargs,
+) -> MappingSetDataFrame:
+    """Parse an Newline-delimited JSON file with JSKOS mappings and translates it into a MappingSetDataFrame.
+    :param file_path: The path to the file
+    :param prefix_map: The prefix map to shorten URIs
+    :param meta: an optional dictionary of metadata elements
+    :return: A SSSOM MappingSetDataFrame
+    """
+    raise_for_bad_path(file_path)
+
+    # TODO: mapping_set_id is set wrongly (default value?)
+    # TODO: get curie prefixes from concept schemes
+
+    mlist = []
+    with open(file_path) as ndjson:
+        for line in ndjson.readlines():
+            jskos = json.loads(line)
+            mapping = from_jskos(jskos, prefix_map) 
+            if mapping: 
+                mlist.append(mapping)
+
+    ms = _init_mapping_set(meta)
+    ms.mappings = mlist
+    _set_metadata_in_mapping_set(mapping_set=ms, metadata=meta)
+    mapping_set_document = MappingSetDocument(mapping_set=ms, prefix_map=prefix_map)
+    return to_mapping_set_dataframe(mapping_set_document)
+
+
 # Readers (from object)
+
+JSKOS_BUNDLE_SETS = ["memberSet","memberChoice","memberList"]
+
+def from_jskos(
+    jskos: dict,
+    prefix_map: dict,
+) -> Mapping | None:
+    # Convert a JSKOS Mapping to a Mapping object (if possible)
+
+    if type(jskos) != dict or type(jskos.get("from")) != dict or type(jskos.get("to")) != dict:
+        return
+    
+    fromSet = next(jskos["from"][name] for name in JSKOS_BUNDLE_SETS if name in jskos["from"])
+    toSet = next(jskos["to"][name] for name in JSKOS_BUNDLE_SETS if name in jskos["to"])
+    mappingTypes = jskos["type"] if type(jskos.get("type") == list) else [ SKOS_MAPPING_RELATION ]  
+    fromConcept = fromSet[0]
+    toConcept = toSet[0]
+
+    m = {}
+
+    # TODO: check mapping type and possibly get more specific predicate if available 
+    # This should always be an SKOS property (with skos:mappingRelation as default)
+    m["predicate_id"] = curie_from_uri(mappingTypes[0], prefix_map)
+
+    if len(fromSet) != 1 or len(toSet) != 1:
+        return # skip non 1-to-1 mappings (TODO: what to do with 1-to-0 and 1-to-n mappings?)
+
+    # skip concepts without explicit URI (FIXME?)
+    if type(fromConcept.get("uri")) != str or type(toConcept.get("uri")) != str:
+        return
+
+    # TODO: results in error if prefix_map does not include matching namespace
+    # Better raise a warning instead?
+
+    m["subject_id"] = curie_from_uri(fromConcept["uri"], prefix_map)
+    m["object_id"] = curie_from_uri(toConcept["uri"], prefix_map)
+
+    subject_label = jskos_label(fromConcept)
+    if subject_label:
+        m["subject_label"] = subject_label 
+
+    object_label = jskos_label(toConcept)
+    if object_label:
+        m["object_label"] = object_label
+
+    # NOTE: we cannot pass author names because the may mismatch with author URIs
+    people = jskos.get("creator")
+    if type(people) == list:
+        uris = [item["uri"] for item in people if type(item) == dict and "uri" in item]
+        m["author_id"] = [curie_from_uri(uri, prefix_map) for uri in uris]
+    people = jskos.get("contribiutor")
+    if type(people) == list:
+        uris = [item["uri"] for item in contributor if type(item) == dict and "uri" in item]
+        m["creator_id"] = [curie_from_uri(uri, prefix_map) for uri in uris]
+
+    # TODO: this could be overridden by metadata 
+    m["mapping_justification"] = "semapv:UnspecifiedMatching"
+
+    # NOTE: Mapping URI is lost, unfortunately :-(
+
+    return Mapping(**m)
+
+
+def jskos_label(
+    item: dict | None
+) -> str | None:
+    # return English label or any label as fallback
+    labels = item.get("prefLabel")
+    if labels:
+        if "en" in labels:
+            return labels["en"]
+        else:
+            for lang in labels:
+                return labels[lang]
 
 
 def from_sssom_dataframe(
@@ -710,6 +817,8 @@ def get_parsing_function(input_format: Optional[str], filename: str) -> Callable
         return parse_alignment_xml
     elif input_format == "obographs-json":
         return parse_obographs_json
+    elif input_format == "jskos":
+        return parse_jskos
     else:
         raise Exception(f"Unknown input format: {input_format}")
 

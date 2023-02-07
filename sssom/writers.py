@@ -32,6 +32,7 @@ from .constants import (
     SKOS_EXACT_MATCH,
     SKOS_NARROW_MATCH,
     SKOS_RELATED_MATCH,
+    SKOS_MAPPING_RELATION,
     SSSOM_SUPERCLASS_OF,
 )
 from .parsers import to_mapping_set_document
@@ -215,7 +216,7 @@ def write_jskos(
         if JSKOS_MAPPING_PROPERTIES[predicate]:
             types = [ JSKOS_MAPPING_PROPERTIES[predicate] ]
         else:
-            types = [ "http://www.w3.org/2004/02/skos/core#mappingRelation" ]
+            types = [ SKOS_MAPPING_RELATION ]
         predicate = expand_curie(predicate)
         if not predicate.startswith("http://www.w3.org/2004/02/skos/core"):
            types.append(predicate)

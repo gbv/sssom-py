@@ -89,6 +89,7 @@ SSSOM_READ_FORMATS = [
     "alignment-api-xml",
     "obographs-json",
     "json",
+    "jskos",
 ]
 SSSOM_EXPORT_FORMATS = ["tsv", "rdf", "owl", "json", "fhir", "jskos"]
 
