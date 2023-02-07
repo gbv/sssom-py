@@ -24,6 +24,7 @@ do
   sssom convert $INPUT_URL_1 --output $OUTPUT_DIR/converted_basic_url.$fmt --output-format $fmt
 done
 
+sssom convert $INPUT_FILE_1 --output $OUTPUT_DIR/converted_basic_file.ndjson --output-format jskos
 
 sssom validate $INPUT_FILE_1
 sssom validate $INPUT_URL_1

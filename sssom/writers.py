@@ -18,7 +18,22 @@ from sssom_schema import slots
 
 from sssom.validators import check_all_prefixes_in_curie_map
 
-from .constants import SCHEMA_YAML
+from .constants import (
+    OBO_HAS_DB_XREF,
+    OWL_EQUIVALENT_CLASS,
+    OWL_EQUIVALENT_PROPERTY,
+    OWL_SAME_AS,
+    RDF_SEE_ALSO,
+    RDFS_SUBCLASS_OF,
+    RDFS_SUBPROPERTY_OF,
+    SCHEMA_YAML,
+    SKOS_BROAD_MATCH,
+    SKOS_CLOSE_MATCH,
+    SKOS_EXACT_MATCH,
+    SKOS_NARROW_MATCH,
+    SKOS_RELATED_MATCH,
+    SSSOM_SUPERCLASS_OF,
+)
 from .parsers import to_mapping_set_document
 from .util import (
     PREFIX_MAP_KEY,
@@ -31,9 +46,6 @@ from .util import (
     prepare_context_str,
     sort_df_rows_columns,
 )
-
-# from sssom.validators import check_all_prefixes_in_curie_map
-
 
 # noinspection PyProtectedMember
 
@@ -145,6 +157,83 @@ def write_owl(
     graph = to_owl_graph(msdf)
     t = graph.serialize(format=serialisation, encoding="utf-8")
     print(t.decode(), file=file)
+
+
+JSKOS_MAPPING_PROPERTIES = {
+    OWL_EQUIVALENT_CLASS: "http://www.w3.org/2004/02/skos/core#exactMatch",
+    OWL_EQUIVALENT_PROPERTY: "http://www.w3.org/2004/02/skos/core#exactMatch",
+    RDFS_SUBCLASS_OF: "http://www.w3.org/2004/02/skos/core#narrowMatch",
+    SSSOM_SUPERCLASS_OF: "http://www.w3.org/2004/02/skos/core#broadMatch",
+    RDFS_SUBPROPERTY_OF: "http://www.w3.org/2004/02/skos/core#narrowMatch",
+    OWL_SAME_AS: "http://www.w3.org/2004/02/skos/core#exactMatch",
+    SKOS_EXACT_MATCH: "http://www.w3.org/2004/02/skos/core#exactMatch",
+    SKOS_CLOSE_MATCH: "http://www.w3.org/2004/02/skos/core#closeMatch",
+    SKOS_BROAD_MATCH: "http://www.w3.org/2004/02/skos/core#broadMatch",
+    SKOS_NARROW_MATCH: "http://www.w3.org/2004/02/skos/core#narrowMatch",
+    OBO_HAS_DB_XREF: "http://www.w3.org/2004/02/skos/core#mappingRelation", # ?
+    SKOS_RELATED_MATCH: "http://www.w3.org/2004/02/skos/core#relatedMatch",
+    RDF_SEE_ALSO: "http://www.w3.org/2004/02/skos/core#relatedMatch",
+}
+
+def write_jskos(
+    msdf: MappingSetDataFrame,
+    output: TextIO,
+    serialisation="ndjson",
+) -> None:
+    metadata = msdf.metadata if msdf.metadata is not None else {}
+    created = metadata.get("mapping_date", False)
+
+    prefix_map = msdf.prefix_map
+    def expand_curie(curie: str) -> URIRef:
+        prefix, local = curie.split(":")
+        return URIRef(f"{prefix_map[prefix]}{local}")
+
+    creators = metadata.get("creator_id", False)
+    if isinstance(creators, list):
+        creators = [{"uri":expand_curie(c)} for c in creators]
+    elif isinstance(creators, str):
+        creators = [{"uri":expand_curie(creators)}]
+    else:
+        creators = False
+
+    mappings = to_mapping_set_document(msdf).mapping_set.mappings
+
+    for mapping in mappings:
+
+        # from and to
+        fromConcept = {"uri": expand_curie(mapping.subject_id)}
+        toConcept = {"uri": expand_curie(mapping.object_id)}
+
+        if mapping.subject_label:
+            fromConcept["prefLabel"] = {"und": mapping.subject_label}
+        if mapping.object_label:
+            toConcept["prefLabel"] = {"und": mapping.object_label}
+
+        # mapping type
+        types = []
+        predicate = mapping.predicate_id
+        if JSKOS_MAPPING_PROPERTIES[predicate]:
+            types = [ JSKOS_MAPPING_PROPERTIES[predicate] ]
+        else:
+            types = [ "http://www.w3.org/2004/02/skos/core#mappingRelation" ]
+        predicate = expand_curie(predicate)
+        if not predicate.startswith("http://www.w3.org/2004/02/skos/core"):
+           types.append(predicate)
+
+        data = {
+            "from": {"memberSet": [fromConcept]},
+            "to": {"memberSet": [toConcept]},
+            "type": types,
+        }
+
+        # additional metadata
+        if created:
+            data["created"] = created
+        if creators:
+            data["creator"] = creators
+
+        json.dump(data, output, separators=(",", ":"))
+        output.write("\n")
 
 
 # Converters
@@ -508,6 +597,8 @@ def get_writer_function(
         return write_fhir_json, output_format
     elif output_format == "owl":
         return write_owl, SSSOM_DEFAULT_RDF_SERIALISATION
+    elif output_format == "jskos":
+        return write_jskos, output_format
     else:
         raise ValueError(f"Unknown output format: {output_format}")
 
@@ -535,7 +626,7 @@ def _inject_annotation_properties(graph: Graph, elements) -> None:
     for var in [
         slot
         for slot in dir(slots)
-        if not callable(getattr(slots, slot)) and not slot.startswith("__")
+        if not callable(getattr(slots, slot)) and not slot.startsWith("__")
     ]:
         slot = getattr(slots, var)
         if slot.name in elements:
